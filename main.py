@@ -32,7 +32,7 @@ def load_data():
         with open(DATA_FILE, "r") as f:
             return json.load(f)
     except:
-        return {"users": {}, "steps": {}, "all_users": [], "validated_count": 0, "referrals": {}}
+        return {"users": {}, "steps": {}, "all_users": [], "validated_count": 0, "referrals": {}, "admin_broadcast": {}}
 
 def save_data():
     with open(DATA_FILE, "w") as f:
@@ -45,6 +45,7 @@ user_data = data["users"]
 all_users = set(data["all_users"])
 validated_count = data["validated_count"]
 referrals = data.get("referrals", {})
+admin_broadcast = data.get("admin_broadcast", {})
 
 GROUP_LINK = "https://t.me/+qvrpwk_KSJVhMjFk"
 
@@ -169,93 +170,202 @@ def admin_panel(message):
         return
 
     markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("📊 Statistiques Complètes", callback_data="stats_full"))
+    markup.add(types.InlineKeyboardButton("📢 Message à TOUS", callback_data="msg_all"))
+    markup.add(types.InlineKeyboardButton("⏳ Message aux EN ATTENTE", callback_data="msg_pending"))
+    markup.add(types.InlineKeyboardButton("👤 Message PERSONNALISÉ", callback_data="msg_custom"))
+    markup.add(types.InlineKeyboardButton("🎯 Voir Utilisateurs", callback_data="list_users"))
 
-    markup.add(types.InlineKeyboardButton("📊 Stats", callback_data="stats"))
-    markup.add(types.InlineKeyboardButton("📢 Broadcast ALL", callback_data="broadcast_all"))
-    markup.add(types.InlineKeyboardButton("🎯 Pending Users", callback_data="pending"))
-    markup.add(types.InlineKeyboardButton("👑 VIP Message", callback_data="vip"))
-    markup.add(types.InlineKeyboardButton("🔁 Relance", callback_data="relance"))
+    bot.send_message(message.chat.id, "🔥 PANEL ADMIN COMPLET :", reply_markup=markup)
 
-    bot.send_message(message.chat.id, "🔥 MENU ADMIN PRO :", reply_markup=markup)
-
-# ================= ADMIN ACTIONS =================
-@bot.callback_query_handler(func=lambda call: call.data in ["stats", "broadcast_all", "pending", "vip", "relance"])
-def admin_actions(call):
-
+# ================= STATISTIQUES COMPLÈTES =================
+@bot.callback_query_handler(func=lambda call: call.data == "stats_full")
+def stats_full(call):
     if call.message.chat.id != ADMIN_CHAT_ID:
         return
 
-    data_action = call.data
+    total_users = len(all_users)
+    pending_users = sum(1 for s in user_steps.values() if s == 3)
+    validated_users = sum(1 for s in user_steps.values() if s == 4)
+    rejected_users = sum(1 for s in user_steps.values() if s == 0)
+    total_referrals = sum(referrals.values())
 
-    # 📊 STATS
-    if data_action == "stats":
-        total_users = len(all_users)
-        pending_users = sum(1 for s in user_steps.values() if s == 3)
+    stats_text = (
+        f"📊 STATISTIQUES COMPLÈTES\n\n"
+        f"👥 Total utilisateurs : <b>{total_users}</b>\n"
+        f"✅ Validés : <b>{validated_users}</b>\n"
+        f"⏳ En attente : <b>{pending_users}</b>\n"
+        f"❌ Refusés : <b>{rejected_users}</b>\n"
+        f"🎁 Total partages : <b>{total_referrals}</b>\n\n"
+        f"📈 Taux de conversion : <b>{round((validated_users/total_users*100) if total_users > 0 else 0)}%</b>"
+    )
 
-        bot.send_message(call.message.chat.id,
-            f"📊 STATISTIQUES\n\n"
-            f"👥 Total users : {total_users}\n"
-            f"⏳ En attente : {pending_users}"
-        )
+    bot.send_message(call.message.chat.id, stats_text, parse_mode="HTML")
+    bot.answer_callback_query(call.id)
 
-    # 📢 BROADCAST ALL
-    elif data_action == "broadcast_all":
-        bot.send_message(call.message.chat.id,
-            "📢 Utilise la commande :\n/sendall ton message"
-        )
+# ================= MESSAGE À TOUS =================
+@bot.callback_query_handler(func=lambda call: call.data == "msg_all")
+def msg_all_handler(call):
+    if call.message.chat.id != ADMIN_CHAT_ID:
+        return
 
-    # 🎯 PENDING USERS
-    elif data_action == "pending":
-        count = sum(1 for s in user_steps.values() if s == 3)
+    admin_broadcast[str(ADMIN_CHAT_ID)] = {"mode": "all", "type": None}
+    data["admin_broadcast"] = admin_broadcast
+    save_data()
 
-        bot.send_message(call.message.chat.id,
-            f"⏳ Utilisateurs en attente : {count}"
-        )
+    bot.send_message(call.message.chat.id,
+        "📢 Mode : MESSAGE À TOUS\n\n"
+        "Envoie ton message (texte ou photo avec légende)"
+    )
+    bot.answer_callback_query(call.id)
 
-    # 👑 VIP MESSAGE
-    elif data_action == "vip":
-        for user in all_users:
-            try:
-                bot.send_message(user,
-                    "👑 OFFRE VIP DISPONIBLE 🔥\n"
-                    "👉 Nouveau pronostic en ligne !"
-                )
-            except:
-                pass
+# ================= MESSAGE AUX EN ATTENTE =================
+@bot.callback_query_handler(func=lambda call: call.data == "msg_pending")
+def msg_pending_handler(call):
+    if call.message.chat.id != ADMIN_CHAT_ID:
+        return
 
-        bot.send_message(call.message.chat.id, "✅ Message VIP envoyé")
+    admin_broadcast[str(ADMIN_CHAT_ID)] = {"mode": "pending", "type": None}
+    data["admin_broadcast"] = admin_broadcast
+    save_data()
 
-    # 🔁 RELANCE
-    elif data_action == "relance":
-        for user_id, step in user_steps.items():
-            if step == 3:
+    bot.send_message(call.message.chat.id,
+        "⏳ Mode : MESSAGE AUX EN ATTENTE\n\n"
+        "Envoie ton message (texte ou photo avec légende)"
+    )
+    bot.answer_callback_query(call.id)
+
+# ================= MESSAGE PERSONNALISÉ =================
+@bot.callback_query_handler(func=lambda call: call.data == "msg_custom")
+def msg_custom_handler(call):
+    if call.message.chat.id != ADMIN_CHAT_ID:
+        return
+
+    user_list = "\n".join([f"• {user_data.get(uid, {}).get('name', 'Unknown')} ({uid})" for uid in all_users])
+    
+    bot.send_message(call.message.chat.id,
+        f"👤 UTILISATEURS DISPONIBLES :\n\n{user_list}\n\n"
+        "Réponds avec le format : ID,message\n"
+        "Exemple : 123456789,Salut !\n\n"
+        "(Tu peux aussi envoyer une photo avec légende après)"
+    )
+    bot.answer_callback_query(call.id)
+
+# ================= VOIR UTILISATEURS =================
+@bot.callback_query_handler(func=lambda call: call.data == "list_users")
+def list_users_handler(call):
+    if call.message.chat.id != ADMIN_CHAT_ID:
+        return
+
+    user_list = "\n".join([f"✅ {user_data.get(uid, {}).get('name', 'Unknown')} | ID: {uid}" for uid in all_users])
+    
+    if not user_list:
+        user_list = "Aucun utilisateur"
+
+    bot.send_message(call.message.chat.id,
+        f"👥 LISTE DES UTILISATEURS ({len(all_users)})\n\n{user_list}"
+    )
+    bot.answer_callback_query(call.id)
+
+# ================= RECEVOIR MESSAGES ADMIN =================
+@bot.message_handler(func=lambda m: str(m.chat.id) == str(ADMIN_CHAT_ID) and str(m.chat.id) in admin_broadcast)
+def admin_send_message(message):
+    chat_id = str(message.chat.id)
+    broadcast_data = admin_broadcast.get(chat_id, {})
+    mode = broadcast_data.get("mode")
+
+    if mode == "all":
+        if message.content_type == "text":
+            msg = message.text
+            for user in all_users:
                 try:
-                    bot.send_message(user_id,
-                        "⏳ Dernier rappel 🔥\n"
-                        "Envoie ta capture pour validation"
-                    )
+                    bot.send_message(user, msg, parse_mode="HTML")
+                except:
+                    pass
+        elif message.content_type == "photo":
+            file_id = message.photo[-1].file_id
+            caption = message.caption or ""
+            for user in all_users:
+                try:
+                    bot.send_photo(user, file_id, caption=caption, parse_mode="HTML")
                 except:
                     pass
 
-        bot.send_message(call.message.chat.id, "✅ Relance envoyée")
+        bot.send_message(chat_id, "✅ Message envoyé à TOUS")
+        admin_broadcast.pop(chat_id, None)
+        data["admin_broadcast"] = admin_broadcast
+        save_data()
 
-    bot.answer_callback_query(call.id)
+    elif mode == "pending":
+        if message.content_type == "text":
+            msg = message.text
+            for user_id, step in user_steps.items():
+                if step == 3:
+                    try:
+                        bot.send_message(user_id, msg, parse_mode="HTML")
+                    except:
+                        pass
+        elif message.content_type == "photo":
+            file_id = message.photo[-1].file_id
+            caption = message.caption or ""
+            for user_id, step in user_steps.items():
+                if step == 3:
+                    try:
+                        bot.send_photo(user_id, file_id, caption=caption, parse_mode="HTML")
+                    except:
+                        pass
 
-# ================= BROADCAST =================
-@bot.message_handler(commands=['broadcast'])
-def broadcast(message):
-    if str(message.chat.id) != str(ADMIN_CHAT_ID):
-        return
+        bot.send_message(chat_id, "✅ Message envoyé aux EN ATTENTE")
+        admin_broadcast.pop(chat_id, None)
+        data["admin_broadcast"] = admin_broadcast
+        save_data()
 
-    msg = message.text.replace("/broadcast", "").strip()
+# ================= MESSAGE PERSONNALISÉ (TEXTE) =================
+@bot.message_handler(func=lambda m: str(m.chat.id) == str(ADMIN_CHAT_ID) and "," in m.text)
+def admin_send_custom(message):
+    try:
+        parts = message.text.split(",", 1)
+        target_id = parts[0].strip()
+        msg = parts[1].strip()
 
-    for user in all_users:
+        if target_id in all_users:
+            bot.send_message(target_id, msg, parse_mode="HTML")
+            bot.send_message(message.chat.id, f"✅ Message envoyé à {user_data.get(target_id, {}).get('name', target_id)}")
+        else:
+            bot.send_message(message.chat.id, "❌ Utilisateur introuvable")
+    except:
+        bot.send_message(message.chat.id, "❌ Format invalide. Utilise : ID,message")
+
+# ================= MESSAGE PERSONNALISÉ (PHOTO) =================
+@bot.message_handler(content_types=['photo'], func=lambda m: str(m.chat.id) == str(ADMIN_CHAT_ID))
+def admin_send_custom_photo(message):
+    chat_id = str(message.chat.id)
+    
+    if chat_id in admin_broadcast:
+        broadcast_data = admin_broadcast[chat_id]
+        mode = broadcast_data.get("mode")
+        
+        if mode in ["all", "pending"]:
+            # Déjà géré dans admin_send_message
+            return
+
+    reply_text = message.reply_to_message.text if message.reply_to_message else None
+    
+    if reply_text and "," in reply_text:
         try:
-            bot.send_message(user, msg)
-        except:
-            pass
+            parts = reply_text.split(",", 1)
+            target_id = parts[0].strip()
+            
+            file_id = message.photo[-1].file_id
+            caption = message.caption or ""
 
-    bot.send_message(message.chat.id, "✅ Envoyé à tous")
+            if target_id in all_users:
+                bot.send_photo(target_id, file_id, caption=caption, parse_mode="HTML")
+                bot.send_message(message.chat.id, f"✅ Photo envoyée à {user_data.get(target_id, {}).get('name', target_id)}")
+            else:
+                bot.send_message(message.chat.id, "❌ Utilisateur introuvable")
+        except:
+            bot.send_message(message.chat.id, "❌ Erreur lors de l'envoi")
 
 # ================= RUN BOT =================
 if __name__ == '__main__':
