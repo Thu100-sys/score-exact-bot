@@ -125,8 +125,8 @@ def age(message):
 
     save_data()
 
-# ================= PHOTO =================
-@bot.message_handler(content_types=['photo'])
+# ================= PHOTO USER =================
+@bot.message_handler(content_types=['photo'], func=lambda m: str(m.chat.id) not in admin_mode)
 def photo(message):
     chat_id = str(message.chat.id)
 
@@ -291,7 +291,6 @@ def stats_chart(call):
     rejected = sum(1 for s in user_steps.values() if s == 0)
     in_progress = sum(1 for s in user_steps.values() if s in [1, 2])
 
-    # Simple ASCII chart
     chart = (
         f"📈 GRAPHIQUE UTILISATEURS\n\n"
         f"Validés ✅     : {'█' * validated}\n"
@@ -531,30 +530,23 @@ def settings(call):
     bot.send_message(call.message.chat.id, settings_text)
     bot.answer_callback_query(call.id)
 
-# ================= RECEVOIR MESSAGES ADMIN =================
-@bot.message_handler(func=lambda m: str(m.chat.id) == str(ADMIN_CHAT_ID) and str(m.chat.id) in admin_mode)
-def admin_send_message(message):
+# ================= RECEVOIR TEXTE ADMIN =================
+@bot.message_handler(content_types=['text'], func=lambda m: str(m.chat.id) == str(ADMIN_CHAT_ID) and str(m.chat.id) in admin_mode)
+def admin_send_text(message):
     chat_id = str(message.chat.id)
     mode = admin_mode.get(chat_id)
 
     if not mode:
         return
 
-    msg_text = message.text if message.content_type == "text" else None
-    file_id = message.photo[-1].file_id if message.content_type == "photo" else None
-    caption = message.caption or ""
-
+    msg_text = message.text
     count = 0
     failed = 0
 
-    # MESSAGE À TOUS
     if mode == "msg_all":
         for user in all_users:
             try:
-                if file_id:
-                    bot.send_photo(user, file_id, caption=caption, parse_mode="HTML")
-                else:
-                    bot.send_message(user, msg_text, parse_mode="HTML")
+                bot.send_message(user, msg_text, parse_mode="HTML")
                 count += 1
             except:
                 failed += 1
@@ -562,15 +554,11 @@ def admin_send_message(message):
         bot.send_message(chat_id, f"✅ Envoyé à {count} utilisateurs\n❌ Échoué: {failed}")
         log_action("MSG_ALL_SENT", f"Sent to {count} users")
 
-    # MESSAGE AUX EN ATTENTE
     elif mode == "msg_pending":
         for user_id, step in user_steps.items():
             if step == 3:
                 try:
-                    if file_id:
-                        bot.send_photo(user_id, file_id, caption=caption, parse_mode="HTML")
-                    else:
-                        bot.send_message(user_id, msg_text, parse_mode="HTML")
+                    bot.send_message(user_id, msg_text, parse_mode="HTML")
                     count += 1
                 except:
                     failed += 1
@@ -578,9 +566,8 @@ def admin_send_message(message):
         bot.send_message(chat_id, f"✅ Envoyé à {count} en attente\n❌ Échoué: {failed}")
         log_action("MSG_PENDING_SENT", f"Sent to {count} pending users")
 
-    # MESSAGE PERSONNALISÉ
     elif mode == "msg_custom":
-        if "," in (msg_text or ""):
+        if "," in msg_text:
             parts = msg_text.split(",", 1)
             target_id = parts[0].strip()
             msg = parts[1].strip()
@@ -588,14 +575,13 @@ def admin_send_message(message):
             if target_id in all_users:
                 try:
                     bot.send_message(target_id, msg, parse_mode="HTML")
-                    bot.send_message(chat_id, f"��� Envoyé à {user_data.get(target_id, {}).get('name', target_id)}")
+                    bot.send_message(chat_id, f"✅ Envoyé à {user_data.get(target_id, {}).get('name', target_id)}")
                     log_action("MSG_CUSTOM_SENT", f"Sent to {target_id}")
                 except:
                     bot.send_message(chat_id, "❌ Erreur d'envoi")
             else:
                 bot.send_message(chat_id, "❌ Utilisateur introuvable")
 
-    # MESSAGE PAR GROUPE
     elif mode.startswith("msg_group_"):
         group_type = mode.replace("msg_group_", "")
         for user_id, step in user_steps.items():
@@ -603,24 +589,17 @@ def admin_send_message(message):
                (group_type == "pending" and step == 3) or \
                (group_type == "rejected" and step == 0):
                 try:
-                    if file_id:
-                        bot.send_photo(user_id, file_id, caption=caption, parse_mode="HTML")
-                    else:
-                        bot.send_message(user_id, msg_text, parse_mode="HTML")
+                    bot.send_message(user_id, msg_text, parse_mode="HTML")
                     count += 1
                 except:
                     failed += 1
         
         bot.send_message(chat_id, f"✅ Envoyé à {count} utilisateurs\n❌ Échoué: {failed}")
 
-    # OFFRE VIP
     elif mode == "send_vip":
         for user in all_users:
             try:
-                if file_id:
-                    bot.send_photo(user, file_id, caption=caption, parse_mode="HTML")
-                else:
-                    bot.send_message(user, msg_text, parse_mode="HTML")
+                bot.send_message(user, msg_text, parse_mode="HTML")
                 count += 1
             except:
                 failed += 1
@@ -628,15 +607,11 @@ def admin_send_message(message):
         bot.send_message(chat_id, f"👑 VIP envoyé à {count} utilisateurs")
         log_action("VIP_OFFER_SENT", f"Sent to {count} users")
 
-    # RAPPEL EN ATTENTE
     elif mode == "reminder_pending":
         for user_id, step in user_steps.items():
             if step == 3:
                 try:
-                    if file_id:
-                        bot.send_photo(user_id, file_id, caption=caption, parse_mode="HTML")
-                    else:
-                        bot.send_message(user_id, msg_text, parse_mode="HTML")
+                    bot.send_message(user_id, msg_text, parse_mode="HTML")
                     count += 1
                 except:
                     failed += 1
@@ -648,11 +623,88 @@ def admin_send_message(message):
     data["admin_mode"] = admin_mode
     save_data()
 
+# ================= RECEVOIR PHOTO ADMIN =================
+@bot.message_handler(content_types=['photo'], func=lambda m: str(m.chat.id) == str(ADMIN_CHAT_ID) and str(m.chat.id) in admin_mode)
+def admin_send_photo(message):
+    chat_id = str(message.chat.id)
+    mode = admin_mode.get(chat_id)
+
+    if not mode:
+        return
+
+    file_id = message.photo[-1].file_id
+    caption = message.caption or ""
+    count = 0
+    failed = 0
+
+    if mode == "msg_all":
+        for user in all_users:
+            try:
+                bot.send_photo(user, file_id, caption=caption, parse_mode="HTML")
+                count += 1
+            except:
+                failed += 1
+        
+        bot.send_message(chat_id, f"✅ Photo envoyée à {count} utilisateurs\n❌ Échoué: {failed}")
+        log_action("MSG_ALL_PHOTO_SENT", f"Sent to {count} users")
+
+    elif mode == "msg_pending":
+        for user_id, step in user_steps.items():
+            if step == 3:
+                try:
+                    bot.send_photo(user_id, file_id, caption=caption, parse_mode="HTML")
+                    count += 1
+                except:
+                    failed += 1
+        
+        bot.send_message(chat_id, f"✅ Photo envoyée à {count} en attente\n❌ Échoué: {failed}")
+        log_action("MSG_PENDING_PHOTO_SENT", f"Sent to {count} pending users")
+
+    elif mode.startswith("msg_group_"):
+        group_type = mode.replace("msg_group_", "")
+        for user_id, step in user_steps.items():
+            if (group_type == "validated" and step == 4) or \
+               (group_type == "pending" and step == 3) or \
+               (group_type == "rejected" and step == 0):
+                try:
+                    bot.send_photo(user_id, file_id, caption=caption, parse_mode="HTML")
+                    count += 1
+                except:
+                    failed += 1
+        
+        bot.send_message(chat_id, f"✅ Photo envoyée à {count} utilisateurs\n❌ Échoué: {failed}")
+
+    elif mode == "send_vip":
+        for user in all_users:
+            try:
+                bot.send_photo(user, file_id, caption=caption, parse_mode="HTML")
+                count += 1
+            except:
+                failed += 1
+        
+        bot.send_message(chat_id, f"👑 VIP envoyée à {count} utilisateurs")
+        log_action("VIP_OFFER_PHOTO_SENT", f"Sent to {count} users")
+
+    elif mode == "reminder_pending":
+        for user_id, step in user_steps.items():
+            if step == 3:
+                try:
+                    bot.send_photo(user_id, file_id, caption=caption, parse_mode="HTML")
+                    count += 1
+                except:
+                    failed += 1
+        
+        bot.send_message(chat_id, f"🔔 Photo envoyée à {count} utilisateurs")
+        log_action("REMINDER_PHOTO_SENT", f"Sent to {count} pending users")
+
+    admin_mode.pop(chat_id, None)
+    data["admin_mode"] = admin_mode
+    save_data()
+
 # ================= RUN BOT =================
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 10000))
     
-    # Set webhook
     bot.remove_webhook()
     bot.set_webhook(url=f"https://score-exact-bot.onrender.com/webhook")
     
