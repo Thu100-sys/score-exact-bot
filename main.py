@@ -95,36 +95,10 @@ def age(message):
             "⚠️ <b>ID visible obligatoire</b>",
             parse_mode="HTML"
         )
-        user_steps[chat_id] = 2.5
+        user_steps[chat_id] = 3
     else:
         bot.send_message(chat_id, "❌ Accès interdit (18+)")
         user_steps[chat_id] = 0
-
-    save_data()
-
-# ================= REFERRAL SHARING =================
-@bot.message_handler(func=lambda m: user_steps.get(str(m.chat.id)) == 2.5)
-def referral_step(message):
-    chat_id = str(message.chat.id)
-
-    if message.text.lower() in ["partager", "oui", "ok", "yes"]:
-        referrals[chat_id] = referrals.get(chat_id, 0) + 1
-        data["referrals"] = referrals
-        save_data()
-
-        bot.send_message(chat_id,
-            "🎁 Merci d'avoir partagé !\n"
-            f"Points gagnés : +1 🏆\n\n"
-            f"Maintenant, envoie ta capture 📸\n"
-            "(inscription + dépôt)"
-        )
-        user_steps[chat_id] = 3
-    else:
-        bot.send_message(chat_id,
-            "As-tu partagé avec des amis pour gagner des points ? 🤝\n\n"
-            "Réponds: <b>PARTAGER</b> ou <b>OUI</b>",
-            parse_mode="HTML"
-        )
 
     save_data()
 
@@ -185,6 +159,85 @@ def reject(call):
 
     user_steps[chat_id] = 3
     save_data()
+
+    bot.answer_callback_query(call.id)
+
+# ================= ADMIN PANEL =================
+@bot.message_handler(commands=['admin'])
+def admin_panel(message):
+    if message.chat.id != ADMIN_CHAT_ID:
+        return
+
+    markup = types.InlineKeyboardMarkup()
+
+    markup.add(types.InlineKeyboardButton("📊 Stats", callback_data="stats"))
+    markup.add(types.InlineKeyboardButton("📢 Broadcast ALL", callback_data="broadcast_all"))
+    markup.add(types.InlineKeyboardButton("🎯 Pending Users", callback_data="pending"))
+    markup.add(types.InlineKeyboardButton("👑 VIP Message", callback_data="vip"))
+    markup.add(types.InlineKeyboardButton("🔁 Relance", callback_data="relance"))
+
+    bot.send_message(message.chat.id, "🔥 MENU ADMIN PRO :", reply_markup=markup)
+
+# ================= ADMIN ACTIONS =================
+@bot.callback_query_handler(func=lambda call: call.data in ["stats", "broadcast_all", "pending", "vip", "relance"])
+def admin_actions(call):
+
+    if call.message.chat.id != ADMIN_CHAT_ID:
+        return
+
+    data_action = call.data
+
+    # 📊 STATS
+    if data_action == "stats":
+        total_users = len(all_users)
+        pending_users = sum(1 for s in user_steps.values() if s == 3)
+
+        bot.send_message(call.message.chat.id,
+            f"📊 STATISTIQUES\n\n"
+            f"👥 Total users : {total_users}\n"
+            f"⏳ En attente : {pending_users}"
+        )
+
+    # 📢 BROADCAST ALL
+    elif data_action == "broadcast_all":
+        bot.send_message(call.message.chat.id,
+            "📢 Utilise la commande :\n/sendall ton message"
+        )
+
+    # 🎯 PENDING USERS
+    elif data_action == "pending":
+        count = sum(1 for s in user_steps.values() if s == 3)
+
+        bot.send_message(call.message.chat.id,
+            f"⏳ Utilisateurs en attente : {count}"
+        )
+
+    # 👑 VIP MESSAGE
+    elif data_action == "vip":
+        for user in all_users:
+            try:
+                bot.send_message(user,
+                    "👑 OFFRE VIP DISPONIBLE 🔥\n"
+                    "👉 Nouveau pronostic en ligne !"
+                )
+            except:
+                pass
+
+        bot.send_message(call.message.chat.id, "✅ Message VIP envoyé")
+
+    # 🔁 RELANCE
+    elif data_action == "relance":
+        for user_id, step in user_steps.items():
+            if step == 3:
+                try:
+                    bot.send_message(user_id,
+                        "⏳ Dernier rappel 🔥\n"
+                        "Envoie ta capture pour validation"
+                    )
+                except:
+                    pass
+
+        bot.send_message(call.message.chat.id, "✅ Relance envoyée")
 
     bot.answer_callback_query(call.id)
 
