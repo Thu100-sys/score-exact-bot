@@ -1,27 +1,39 @@
-
+import os
+import json
 import telebot
 from telebot import types
-import json
-import os
-import time
+from flask import Flask
 from threading import Thread
-from keep_alive import keep_alive
+import time
 
-# ================= CONFIG =================
-TOKEN = "8198100748:AAFaRtHzSyQltiKVlWZ-KSKURaXK5eagTic"
-GROUP_LINK = "https://t.me/+qvrpwk_KSJVhMjFk"
-ADMIN_CHAT_ID = 1435944368
+# ================= ENV =================
+TOKEN = os.getenv("TOKEN")
+ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID", "0"))
 
 bot = telebot.TeleBot(TOKEN)
+
+# ================= FLASK (RENDER KEEP ALIVE) =================
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is running 24/7"
+
+def run():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
+
+Thread(target=run, daemon=True).start()
 
 # ================= DATA =================
 DATA_FILE = "data.json"
 
 def load_data():
-    if os.path.exists(DATA_FILE):
+    try:
         with open(DATA_FILE, "r") as f:
             return json.load(f)
-    return {"users": {}, "steps": {}, "all_users": [], "validated_count": 0}
+    except:
+        return {"users": {}, "steps": {}, "all_users": [], "validated_count": 0}
 
 def save_data():
     with open(DATA_FILE, "w") as f:
@@ -34,23 +46,7 @@ user_data = data["users"]
 all_users = set(data["all_users"])
 validated_count = data["validated_count"]
 
-# ================= RELANCE AUTO =================
-def reminder_loop():
-    while True:
-        time.sleep(1800)
-        for chat_id, step in user_steps.items():
-            if step == 3:
-                if 'photo_id' not in user_data.get(chat_id, {}):
-                    try:
-                        bot.send_message(chat_id,
-                            "⏳ Tu n’as pas encore envoyé ta preuve.\n\n"
-                            "⚠️ Sans validation, pas d’accès aux scores VIP.\n\n"
-                            "👉 Envoie ta capture maintenant 💰"
-                        )
-                    except:
-                        pass
-
-Thread(target=reminder_loop, daemon=True).start()
+GROUP_LINK = "https://t.me/+qvrpwk_KSJVhMjFk"
 
 # ================= START =================
 @bot.message_handler(commands=['start'])
@@ -59,27 +55,26 @@ def start(message):
 
     all_users.add(chat_id)
     data["all_users"] = list(all_users)
+    save_data()
 
     bot.send_message(chat_id,
-        "🔥 *BIENVENUE SUR SCORE EXACT FIABLE* 🔥\n\n"
-        "💰 Accède à des scores exacts ultra fiables.\n"
-        "📊 Réservé aux membres sérieux.\n\n"
-        "👉 Quel est ton prénom ?",
-        parse_mode="Markdown"
+        "🔥 BIENVENUE SUR SCORE EXACT FIABLE 🔥\n\n"
+        "💰 Accès VIP scores exacts\n"
+        "👉 Quel est ton prénom ?"
     )
 
     user_steps[chat_id] = 1
     save_data()
 
-# ================= NOM =================
+# ================= NAME =================
 @bot.message_handler(func=lambda m: user_steps.get(str(m.chat.id)) == 1)
-def get_name(message):
+def name(message):
     chat_id = str(message.chat.id)
 
     user_data[chat_id] = {"name": message.text}
 
     bot.send_message(chat_id,
-        f"🙌 Merci {message.text}\n\nAs-tu 18 ans ? (OUI/NON)"
+        f"Merci {message.text} 🙌\nAs-tu 18 ans ? (OUI/NON)"
     )
 
     user_steps[chat_id] = 2
@@ -92,110 +87,89 @@ def age(message):
 
     if message.text.lower() == "oui":
         bot.send_message(chat_id,
-            "✅ Parfait !\n\n"
-            "👉 Pour accéder aux scores VIP :\n\n"
-            "1. Crée un compte (code THU50)\n"
-            "2. Dépose 3000 FCFA minimum\n"
-            "3. Envoie capture inscription + dépôt\n\n"
-            "⚠️ ID visible obligatoire"
+            "✅ Parfait !\nEnvoie ta capture (inscription + dépôt)"
         )
         user_steps[chat_id] = 3
     else:
-        bot.send_message(chat_id, "❌ Accès refusé (18+ uniquement)")
+        bot.send_message(chat_id, "❌ Accès interdit (18+)")
+        user_steps[chat_id] = 0
 
     save_data()
 
 # ================= PHOTO =================
-@bot.message_handler(content_types=['photo'], func=lambda m: user_steps.get(str(m.chat.id)) == 3)
+@bot.message_handler(content_types=['photo'])
 def photo(message):
     chat_id = str(message.chat.id)
 
-    if chat_id not in user_data:
-        user_data[chat_id] = {}
+    if user_steps.get(chat_id) != 3:
+        return
 
     file_id = message.photo[-1].file_id
-    user_data[chat_id]['photo_id'] = file_id
 
-    bot.send_message(chat_id, "📸 Capture reçue. Vérification en cours...")
+    user_data[chat_id] = user_data.get(chat_id, {})
+    user_data[chat_id]["photo"] = file_id
+
+    bot.send_message(chat_id, "📸 Capture reçue, vérification...")
 
     markup = types.InlineKeyboardMarkup()
     markup.add(
-        types.InlineKeyboardButton("✅ Valider", callback_data=f"validate_{chat_id}"),
-        types.InlineKeyboardButton("❌ Refuser", callback_data=f"reject_{chat_id}")
+        types.InlineKeyboardButton("✅ Valider", callback_data=f"val_{chat_id}"),
+        types.InlineKeyboardButton("❌ Refuser", callback_data=f"rej_{chat_id}")
     )
 
     bot.send_photo(
         ADMIN_CHAT_ID,
         file_id,
-        caption=f"👤 {user_data[chat_id].get('name','Inconnu')}\n🆔 {chat_id}",
+        caption=f"User: {user_data[chat_id].get('name','?')} | ID: {chat_id}",
         reply_markup=markup
     )
 
     save_data()
 
-# ================= VALIDATION =================
-@bot.callback_query_handler(func=lambda call: call.data.startswith("validate_"))
+# ================= VALIDATE =================
+@bot.callback_query_handler(func=lambda call: call.data.startswith("val_"))
 def validate(call):
-    global validated_count
-
     chat_id = call.data.split("_")[1]
 
     bot.send_message(chat_id,
-        f"🎉 VALIDÉ !\n\n"
-        f"🔥 Accède au groupe VIP :\n{GROUP_LINK}\n\n"
-        f"⚠️ Reste actif pour les gains"
+        f"🎉 VALIDÉ !\n\n👉 Groupe VIP : {GROUP_LINK}"
     )
-
-    validated_count += 1
-    data["validated_count"] = validated_count
 
     user_steps[chat_id] = 4
     save_data()
 
-    bot.answer_callback_query(call.id, "Validé ✅")
+    bot.answer_callback_query(call.id)
 
-# ================= REFUS =================
-@bot.callback_query_handler(func=lambda call: call.data.startswith("reject_"))
+# ================= REJECT =================
+@bot.callback_query_handler(func=lambda call: call.data.startswith("rej_"))
 def reject(call):
     chat_id = call.data.split("_")[1]
 
     bot.send_message(chat_id,
-        "❌ Capture refusée\n\n"
-        "👉 ID non visible ou dépôt incorrect\n\n"
-        "📸 Renvoie une bonne capture"
+        "❌ Refusé : renvoie une capture correcte avec ID visible"
     )
-
-    if chat_id in user_data:
-        user_data[chat_id].pop('photo_id', None)
 
     user_steps[chat_id] = 3
     save_data()
 
-    bot.answer_callback_query(call.id, "Refusé ❌")
+    bot.answer_callback_query(call.id)
 
 # ================= BROADCAST =================
-@bot.message_handler(commands=['broadcast_all'])
+@bot.message_handler(commands=['broadcast'])
 def broadcast(message):
-    if message.chat.id != ADMIN_CHAT_ID:
+    if str(message.chat.id) != str(ADMIN_CHAT_ID):
         return
 
-    bot.reply_to(message, "Envoie le message à tous")
-    user_steps[str(message.chat.id)] = "broadcast"
+    msg = message.text.replace("/broadcast", "").strip()
 
-@bot.message_handler(func=lambda m: user_steps.get(str(m.chat.id)) == "broadcast")
-def send_all(message):
-    for user_id in all_users:
+    for user in all_users:
         try:
-            bot.send_message(user_id, message.text)
+            bot.send_message(user, msg)
         except:
             pass
 
-    bot.reply_to(message, "✅ Envoyé à tous")
-    user_steps[str(message.chat.id)] = None
+    bot.send_message(message.chat.id, "✅ Envoyé à tous")
 
-# ================= KEEP ALIVE =================
-keep_alive()
-
-# ================= RUN =================
-bot.infinity_polling()
-
+# ================= RUN BOT =================
+print("Bot running...")
+bot.infinity_polling(skip_pending=True)
