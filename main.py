@@ -2,7 +2,7 @@ import os
 import json
 import telebot
 from telebot import types
-from flask import Flask
+from flask import Flask, request
 from threading import Thread
 import time
 
@@ -12,18 +12,19 @@ ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID", "0"))
 
 bot = telebot.TeleBot(TOKEN)
 
-# ================= FLASK (RENDER KEEP ALIVE) =================
+# ================= FLASK (WEBHOOK) =================
 app = Flask(__name__)
 
 @app.route('/')
 def home():
     return "Bot is running 24/7"
 
-def run():
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
-
-Thread(target=run, daemon=True).start()
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    json_data = request.get_json()
+    update = telebot.types.Update.de_json(json_data)
+    bot.process_new_updates([update])
+    return 'OK', 200
 
 # ================= DATA =================
 DATA_FILE = "data.json"
@@ -171,5 +172,11 @@ def broadcast(message):
     bot.send_message(message.chat.id, "✅ Envoyé à tous")
 
 # ================= RUN BOT =================
-print("Bot running...")
-bot.infinity_polling(skip_pending=True)
+if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 10000))
+    
+    # Set webhook
+    bot.remove_webhook()
+    bot.set_webhook(url=f"https://score-exact-bot.onrender.com/webhook")
+    
+    app.run(host="0.0.0.0", port=port)
