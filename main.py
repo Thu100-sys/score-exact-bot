@@ -3,8 +3,6 @@ import json
 import telebot
 from telebot import types
 from flask import Flask, request
-from threading import Thread
-import time
 
 # ================= ENV =================
 TOKEN = os.getenv("TOKEN")
@@ -34,7 +32,7 @@ def load_data():
         with open(DATA_FILE, "r") as f:
             return json.load(f)
     except:
-        return {"users": {}, "steps": {}, "all_users": [], "validated_count": 0}
+        return {"users": {}, "steps": {}, "all_users": [], "validated_count": 0, "referrals": {}}
 
 def save_data():
     with open(DATA_FILE, "w") as f:
@@ -46,6 +44,7 @@ user_steps = data["steps"]
 user_data = data["users"]
 all_users = set(data["all_users"])
 validated_count = data["validated_count"]
+referrals = data.get("referrals", {})
 
 GROUP_LINK = "https://t.me/+qvrpwk_KSJVhMjFk"
 
@@ -88,12 +87,44 @@ def age(message):
 
     if message.text.lower() == "oui":
         bot.send_message(chat_id,
-            "✅ Parfait !\nEnvoie ta capture (inscription + dépôt)"
+            "✅ Parfait !\n\n"
+            "👉 Pour accéder aux scores VIP :\n\n"
+            "1️⃣ Crée un compte authentique sur Paripesa ou 1xbet avec le code promo authentique <b>THU50</b>\n\n"
+            "2️⃣ Dépose 3000 FCFA minimum pour activer ton compte\n\n"
+            "3️⃣ Envoie capture inscription + dépôt\n\n"
+            "⚠️ <b>ID visible obligatoire</b>",
+            parse_mode="HTML"
         )
-        user_steps[chat_id] = 3
+        user_steps[chat_id] = 2.5
     else:
         bot.send_message(chat_id, "❌ Accès interdit (18+)")
         user_steps[chat_id] = 0
+
+    save_data()
+
+# ================= REFERRAL SHARING =================
+@bot.message_handler(func=lambda m: user_steps.get(str(m.chat.id)) == 2.5)
+def referral_step(message):
+    chat_id = str(message.chat.id)
+
+    if message.text.lower() in ["partager", "oui", "ok", "yes"]:
+        referrals[chat_id] = referrals.get(chat_id, 0) + 1
+        data["referrals"] = referrals
+        save_data()
+
+        bot.send_message(chat_id,
+            "🎁 Merci d'avoir partagé !\n"
+            f"Points gagnés : +1 🏆\n\n"
+            f"Maintenant, envoie ta capture 📸\n"
+            "(inscription + dépôt)"
+        )
+        user_steps[chat_id] = 3
+    else:
+        bot.send_message(chat_id,
+            "As-tu partagé avec des amis pour gagner des points ? 🤝\n\n"
+            "Réponds: <b>PARTAGER</b> ou <b>OUI</b>",
+            parse_mode="HTML"
+        )
 
     save_data()
 
@@ -118,10 +149,12 @@ def photo(message):
         types.InlineKeyboardButton("❌ Refuser", callback_data=f"rej_{chat_id}")
     )
 
+    referral_points = referrals.get(chat_id, 0)
+    
     bot.send_photo(
         ADMIN_CHAT_ID,
         file_id,
-        caption=f"User: {user_data[chat_id].get('name','?')} | ID: {chat_id}",
+        caption=f"User: {user_data[chat_id].get('name','?')} | ID: {chat_id}\nPoints de partage: {referral_points}",
         reply_markup=markup
     )
 
